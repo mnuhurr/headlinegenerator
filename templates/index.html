@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Otsikkogeneraattori{% endblock %}
+{% block header %}<h1>Otsikkogeneraattori</h1>{% endblock %}
+{% block content %}
+<form method="POST">
+Syöte: <input name="prompt" type="text" value="{{ default_prompt }}" size="40"/>
+<input type="submit" value="Luo"/><br/>
+</form>
+{% if results is defined %}
+  {% for res in results %}
+    <span class="result">{{ res }}</span><br/>
+  {% endfor %}
+{% endif %}
+{% endblock %}
+{% block footer %}{% endblock %}
+

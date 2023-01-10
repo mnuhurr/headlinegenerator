@@ -1,0 +1,19 @@
+body {
+    font-family: verdana;
+    font-size: 9pt;
+}
+
+.header {
+}
+
+.content {
+}
+
+.footer {
+    margin-top: 20px;
+    font-size: 7pt;
+}
+
+.result {
+    margin-top: 5px;
+}

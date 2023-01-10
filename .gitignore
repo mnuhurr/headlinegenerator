@@ -1,0 +1,11 @@
+__pycache__
+.idea
+*.ipynb*
+
+# output files
+data
+*.csv
+*.yaml
+*.pkl
+*.log
+*.swp
