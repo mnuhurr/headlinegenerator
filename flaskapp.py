@@ -113,7 +113,8 @@ def main(config_fn='settings.yaml'):
     model = get_model(model_path, model_params)
 
     # start app
-    app = HeadlineApp(model, tokenizer)
+    port = cfg.get('port', 58080)
+    app = HeadlineApp(model, tokenizer, port=port)
     app.run()
 
 if __name__ == '__main__':
