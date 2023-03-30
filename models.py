@@ -24,7 +24,7 @@ class PositionalEncoding(torch.nn.Module):
 
 
 class TokenGenerator(torch.nn.Module):
-    def __init__(self, vocab_size, max_sequence_length, d_model, d_ff, n_heads, n_layers, dropout=0.1):
+    def __init__(self, vocab_size, max_sequence_length, d_model, d_ff, n_heads, n_layers, dropout=0.1, p_masking=0.0):
         super().__init__()
 
         self.embedding = torch.nn.Embedding(vocab_size, d_model)
@@ -34,17 +34,25 @@ class TokenGenerator(torch.nn.Module):
         mask = torch.empty(max_sequence_length, max_sequence_length).fill_(-float('inf')).triu(1)
         self.register_buffer('mask', mask.to(torch.bool), persistent=False)
 
+        # mask token for training
+        self.register_parameter('mask_token', torch.nn.Parameter(1/math.sqrt(d_model) * torch.randn(d_model)))
+        self.p_masking = p_masking
+
         enc_layer = torch.nn.TransformerEncoderLayer(d_model, n_heads, d_ff, dropout, batch_first=True, norm_first=True)
         self.encoder = torch.nn.TransformerEncoder(enc_layer, n_layers)
         self.layernorm = torch.nn.LayerNorm(d_model)
 
-    def forward(self, tokens, mask):
+    def forward(self, tokens, mask, num_special_tokens=5):
         batch_size = tokens.size(0)
         seq_len = tokens.size(-1)
 
         x = self.embedding(tokens)
+       
+        if self.training and self.p_masking > 0:
+            mask_ind = (torch.rand(tokens.shape).to(x.device) < self.p_masking) & (tokens >= num_special_tokens) 
+            x[mask_ind] = self.mask_token
+
         x = self.positional_encoding(x)
-        
         x = self.encoder(x, mask=self.mask[:seq_len, :seq_len], src_key_padding_mask=mask)
 
         x = self.layernorm(x)

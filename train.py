@@ -21,11 +21,13 @@ def model_size(model):
     num_params = sum(param.numel() for param in model.parameters())
     return num_params
 
+
 def train(model, loader, optimizer, scheduler, log_interval):
     train_loss = 0.0
     model.train()
 
     batch_t0 = time.time()
+    scaler = torch.cuda.amp.GradScaler()
 
     for batch, (seqs, mask) in enumerate(loader):
         seqs = seqs.to(device)
@@ -36,15 +38,20 @@ def train(model, loader, optimizer, scheduler, log_interval):
 
         token_mask = mask[:, 1:]
 
-        pred = model(inp_tokens, token_mask)
-        loss = masked_loss(pred, tar_tokens, token_mask)
+        with torch.cuda.amp.autocast():
+            pred = model(inp_tokens, token_mask)
+            loss = masked_loss(pred, tar_tokens, token_mask)
 
         train_loss += loss.item()
 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        #loss.backward()
+        #optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+
         scheduler.step()
+        scaler.update()
 
         if batch % log_interval == 0:
             t_batch = (time.time() - batch_t0) * 1000 / log_interval
@@ -91,7 +98,7 @@ def step_lr(step, d_model, warmup_steps=4000):
     
 
 def main(config_fn='settings.yaml'):
-    cfg = read_cfg(config_fn)
+    cfg = read_yaml(config_fn)
 
     headlines_dir = cfg.get('headlines_dir')
     train_size = cfg.get('train_size', 0.9)
@@ -106,10 +113,11 @@ def main(config_fn='settings.yaml'):
     log_interval = cfg.get('log_interval', 100)
 
     d_model = cfg.get('d_model', 256)
-    d_ff = cfg.get('d_ff̈́', 1024)
+    d_ff = cfg.get('d_ff', 1024)
     n_heads = cfg.get('n_heads', 8)
     n_layers = cfg.get('n_layers', 8)
     dropout = cfg.get('dropout', 0.2)
+    p_masking = cfg.get('p_masking', 0.0)
 
     model_path = Path(cfg.get('model_path', 'data/model.pt'))
     warmup_steps = cfg.get('warmup_steps', 4000)
@@ -133,7 +141,8 @@ def main(config_fn='settings.yaml'):
         d_ff=d_ff,
         n_heads=n_heads,
         n_layers=n_layers,
-        dropout=dropout)
+        dropout=dropout,
+        p_masking=p_masking)
 
     print(f'model has {model_size(model)/1e6:.1f}M params')
 
@@ -155,7 +164,7 @@ def main(config_fn='settings.yaml'):
         val_loss = validate(model, val_loader)
 
         dt = time.time() - t0
-        print(f'epoch {epoch:3d}/{epochs} | {dt:.1f} s | training loss {train_loss:.4f} | validation loss {val_loss:.4f}')
+        print(f'epoch {epoch + 1:3d}/{epochs} | {dt:.1f} s | training loss {train_loss:.4f} | validation loss {val_loss:.4f}')
 
         if val_loss < best_loss:
             best_loss = val_loss
