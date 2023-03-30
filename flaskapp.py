@@ -92,7 +92,7 @@ class HeadlineApp:
             return flask.render_template('index.html', default_prompt=prompt, results=headlines)
 
 
-def main(config_fn='settings.yaml'):
+def main(config_fn='app-settings.yaml'):
     cfg = read_yaml(config_fn)
 
     max_length = cfg.get('max_sequence_length', 128)
