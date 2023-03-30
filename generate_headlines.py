@@ -44,11 +44,10 @@ def generate_headline(model, tokenizer, max_length=128, prompt=None):
 
     while new_token != end_token:
         if k < max_length:
-            #mask = torch.zeros(1, k)
             preds = model(tokens.unsqueeze(0), mask=None)
+            # vary temperature in sampling:
             probs = F.softmax(preds[0, -1, :] * (0.5 * k + 0.5), dim=0)
             new_token = torch.multinomial(probs, 1)[0]
-            #new_token = torch.argmax(preds[0, -1:, :])
         else:
             new_token = end_token
 
