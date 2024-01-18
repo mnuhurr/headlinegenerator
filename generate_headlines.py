@@ -37,8 +37,8 @@ def generate_headline(model, tokenizer, max_length=128, prompt=None):
 
     tokens = tokenizer.encode(prompt).ids
 
-    end_token = tokens[-1]
-    new_token = -1
+    end_token = torch.tensor(tokens[-1])
+    new_token = torch.tensor(-1)
     k = 1
     tokens = torch.tensor(tokens[:-1], dtype=torch.int64)
 
@@ -85,7 +85,7 @@ def main(config_fn='settings.yaml', prompt=None):
 
     model = model.to(device)
 
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
     headlines = []

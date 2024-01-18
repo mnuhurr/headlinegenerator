@@ -30,6 +30,7 @@ def train(model, loader, optimizer, scheduler, log_interval):
     scaler = torch.cuda.amp.GradScaler()
 
     for batch, (seqs, mask) in enumerate(loader):
+        torch.cuda.empty_cache()
         seqs = seqs.to(device)
         mask = mask.to(device)
 
@@ -50,7 +51,8 @@ def train(model, loader, optimizer, scheduler, log_interval):
         scaler.scale(loss).backward()
         scaler.step(optimizer)
 
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         scaler.update()
 
         if batch % log_interval == 0:
@@ -62,11 +64,12 @@ def train(model, loader, optimizer, scheduler, log_interval):
 
     return train_loss / len(loader)
 
-@torch.no_grad()
+
+@torch.inference_mode()
 def validate(model, loader):
     val_loss = 0.0
     model.eval()
-    
+
     for seqs, mask in loader:
         seqs = seqs.to(device)
         mask = mask.to(device)
@@ -74,11 +77,11 @@ def validate(model, loader):
         inp_tokens = seqs[:, :-1]
         tar_tokens = seqs[:, 1:]
 
-        token_mask = mask[:, 1:]
+        token_mask = mask[:, 1:].to(bool)
 
         pred = model(inp_tokens, token_mask)
         loss = masked_loss(pred, tar_tokens, token_mask)
-        
+
         val_loss += loss.item()
 
     return val_loss / len(loader)
@@ -89,13 +92,15 @@ def masked_loss(y_pred, y_true, mask):
     mask = (mask == 0).to(loss.dtype)
     return torch.sum(loss * mask) / torch.sum(mask).to(loss.dtype)
 
-def step_lr(step, d_model, warmup_steps=4000):
-    # learning rate from the original attention paper
+
+def step_lr(step, warmup_steps=4000):
+    # learning rate from the original attention paper modified in such a way that
+    # this function peaks at 1, tune learning rate with optimizer
     arg1 = torch.tensor(1 / math.sqrt(step)) if step > 0 else torch.tensor(float('inf'))
     arg2 = torch.tensor(step * warmup_steps**-1.5)
-    
-    return 1 / math.sqrt(d_model) * torch.minimum(arg1, arg2)
-    
+
+    return math.sqrt(warmup_steps) * torch.minimum(arg1, arg2)
+
 
 def main(config_fn='settings.yaml'):
     cfg = read_yaml(config_fn)
@@ -121,6 +126,8 @@ def main(config_fn='settings.yaml'):
 
     model_path = Path(cfg.get('model_path', 'data/model.pt'))
     warmup_steps = cfg.get('warmup_steps', 4000)
+    learning_rate = cfg.get('learning_rate', 1e-4)
+    weight_decay = cfg.get('weight_decay', 1e-4)
 
     # create datasets
     filenames = sorted(Path(headlines_dir).glob('otsikot-*.txt'))
@@ -132,7 +139,7 @@ def main(config_fn='settings.yaml'):
 
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, num_workers=num_workers, shuffle=True, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn)
-    
+
     print(f'd_model={d_model}, d_ff={d_ff}, n_heads={n_heads}, n_layers={n_layers}, dropout={dropout}')
     model = TokenGenerator(
         vocab_size=train_ds.vocab_size(),
@@ -148,9 +155,8 @@ def main(config_fn='settings.yaml'):
 
     model = model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, 
-            lambda step: step_lr(step, d_model, warmup_steps=warmup_steps))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda step: step_lr(step, warmup_steps=warmup_steps))
 
     model_path.parent.mkdir(exist_ok=True, parents=True)
 
@@ -176,6 +182,7 @@ def main(config_fn='settings.yaml'):
             if patience <= 0:
                 print('results not improving, stopping...')
                 break
+
 
 if __name__ == '__main__':
     main()
