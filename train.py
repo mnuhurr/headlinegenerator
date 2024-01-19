@@ -6,20 +6,18 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
+from sklearn.model_selection import train_test_split
+
 from common import read_yaml
 from dataset import HeadlineDataset, collate_fn
 from models import TokenGenerator
-
-from sklearn.model_selection import train_test_split
+from utils import masked_loss
+from utils import model_size
+from utils import step_lr
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #device = torch.device('cpu')
-
-
-def model_size(model):
-    num_params = sum(param.numel() for param in model.parameters())
-    return num_params
 
 
 def train(model, loader, optimizer, scheduler, log_interval):
@@ -30,7 +28,6 @@ def train(model, loader, optimizer, scheduler, log_interval):
     scaler = torch.cuda.amp.GradScaler()
 
     for batch, (seqs, mask) in enumerate(loader):
-        torch.cuda.empty_cache()
         seqs = seqs.to(device)
         mask = mask.to(device)
 
@@ -85,21 +82,6 @@ def validate(model, loader):
         val_loss += loss.item()
 
     return val_loss / len(loader)
-
-
-def masked_loss(y_pred, y_true, mask):
-    loss = F.cross_entropy(y_pred.permute(0, 2, 1), y_true, reduction='none')
-    mask = (mask == 0).to(loss.dtype)
-    return torch.sum(loss * mask) / torch.sum(mask).to(loss.dtype)
-
-
-def step_lr(step, warmup_steps=4000):
-    # learning rate from the original attention paper modified in such a way that
-    # this function peaks at 1, tune learning rate with optimizer
-    arg1 = torch.tensor(1 / math.sqrt(step)) if step > 0 else torch.tensor(float('inf'))
-    arg2 = torch.tensor(step * warmup_steps**-1.5)
-
-    return math.sqrt(warmup_steps) * torch.minimum(arg1, arg2)
 
 
 def main(config_fn='settings.yaml'):
